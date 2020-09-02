@@ -39,6 +39,12 @@
 			<version>3.0.0</version>
 		</dependency>
 		<dependency>
+			<groupId>org.apache.spark</groupId>
+			<artifactId>spark-mllib_${scala.compat.version}</artifactId>
+			<version>3.0.0</version>
+		</dependency>
+
+		<dependency>
 			<!-- Para o MetaStore do Hive -->
 			<groupId>org.apache.derby</groupId>
 			<artifactId>derbyclient</artifactId>

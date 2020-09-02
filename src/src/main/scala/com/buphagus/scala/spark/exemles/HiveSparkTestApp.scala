@@ -1,4 +1,4 @@
-package com.buphagus.scala.spark.exemles
+package com.buphagus.scala.spark.exemples
 
 import java.io.File
 import org.apache.spark.sql.SparkSession
@@ -7,11 +7,11 @@ import org.apache.spark.SparkContext
 
 object HiveSparkTestApp {
 
-  def main(args: Array[String]) = {
+  def main(args: Array[String]) : Unit = {
 
     val conf: SparkConf = new SparkConf()
       .setMaster("local[2]")
-      .setAppName("ParquetTest")
+      .setAppName("HiveTest")
       .set("spark.sql.warehouse.dir", "hdfs://localhost:9000/user/hive/warehouse")
       .set("hive.metastore.uris", "thrift://0.0.0.0:9083")
       .set("spark.sql.catalogImplementation", "hive")
@@ -32,12 +32,12 @@ object HiveSparkTestApp {
     spark.sql("use dbdesafio")
 
     val tablesDf = spark.sql("show tables")
-    tablesDf.show
+    tablesDf.show()
 
     val describeTableDf = spark.sql("describe dadoscovid")
-    describeTableDf.show
+    describeTableDf.show()
 
-    spark.table("dadoscovid").show
+    spark.table("dadoscovid").show()
 
   }
 }

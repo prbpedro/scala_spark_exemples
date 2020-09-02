@@ -1,32 +1,131 @@
-package com.buphagus.scala.spark.exemles
+package com.buphagus.scala.spark.exemples
 
 import org.apache.spark.{ SparkConf, SparkContext }
 import org.apache.spark.sql.{ DataFrame, SQLContext }
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.Dataset
+import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.StructField
+import org.apache.spark.sql.types.LongType
+import org.apache.spark.sql.types.StringType
+import org.apache.spark.sql.SaveMode
+import scala.collection.mutable.Map
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.rdd.RDD
+import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.ml.feature.OneHotEncoder
 
 /**
+ * spark-submit --class com.buphagus.scala.spark.exemples.ParquetTestApp /home/prbpedro/Development/repositories/github/scala_spark_exemples/src/target/scala.spark.exemples-0.0.1-SNAPSHOT.jar
+ * 
  * @author Pedro Ribeiro Baptista
  */
 object ParquetTestApp {
 
-  def main(args: Array[String]) = {
-    // Two threads local[2]
-    val conf: SparkConf = new SparkConf().setMaster("local[2]").setAppName("ParquetTest")
-    val sc: SparkContext = new SparkContext(conf)
-    val sqlContext: SQLContext = new SQLContext(sc)
+  def main(args: Array[String]) : Unit = {
+     val conf: SparkConf = new SparkConf()
+      .setMaster("local[2]")
+      .setAppName("ParquetTest")
 
-    readParquet(sqlContext)
+    val sc: SparkContext = new SparkContext(conf)
+
+    val spark = SparkSession
+      .builder()
+      .appName("Spark Parquet Example")
+      .getOrCreate()
+
+    var df = readParquet(spark)
+    df = preProcess(spark, df)
   }
 
-  def readParquet(sqlContext: SQLContext) = {
-    val userDataDF = sqlContext.read.parquet("hdfs://localhost:9000/input/spark/parquettest/userdata1.parquet")
+  def readParquet(spark: SparkSession): DataFrame = {
+    return spark.read.parquet("hdfs://localhost:9000/input/spark/parquettest/userdata1.parquet")
+  }
+  
+  def preProcess(spark: SparkSession, df: DataFrame): DataFrame = {
+    var reducedDf = df.select("id", "gender", "salary", "country")
+    reducedDf.printSchema()
+    
+    println("------------- Null Values Count -----------")
+    getNullValuesCount(reducedDf).foreach(p => println("(" + p._1 + ", " + p._2 + ")"))
+    println("-------------------------------------------\n")
+    
+    reducedDf = transformNullGenderValues(reducedDf)
+    reducedDf = transformNullSalaryValues(spark, reducedDf)
+        
+    println("--- Null Values Count after transform -----")
+    getNullValuesCount(reducedDf).foreach(p => println("(" + p._1 + ", " + p._2 + ")"))
+    println("-------------------------------------------\n")
+    
+    println("------------- Outliers detection ----------")
+    findSalaryOutliers(reducedDf)
+    println("-------------------------------------------\n")
+    
+    println("--------------- Label Encoding ------------")
+    reducedDf = applyEnconding(spark, reducedDf)
+    println("-------------------------------------------\n")
 
-    userDataDF.show(true);
+    return reducedDf
+  }
+  
+  def applyEnconding(spark: SparkSession, df: DataFrame): DataFrame = {
+    var reducedDf = new StringIndexer().setInputCol("gender").setOutputCol("gender_index").fit(df).transform(df);
+    var oneHotEncoder = new OneHotEncoder().setInputCol("gender_index").setOutputCol("gender_vec");
+    reducedDf = oneHotEncoder.fit(reducedDf).transform(reducedDf);
+    
+    reducedDf = new StringIndexer().setInputCol("country").setOutputCol("country_index").fit(reducedDf).transform(reducedDf);
+    oneHotEncoder = new OneHotEncoder().setInputCol("country_index").setOutputCol("country_vec");
+    reducedDf = oneHotEncoder.fit(reducedDf).transform(reducedDf);
+    
+    reducedDf.show()
+    reducedDf.printSchema()
+    return reducedDf
+  }
 
-    import sqlContext.implicits._
-    val userDataFilteredDF = userDataDF.filter($"email" !== "")
-    val userDataRdd = userDataFilteredDF.rdd
+  def findSalaryOutliers(reducedDf: DataFrame) = {
+    val quantiles = reducedDf.stat.approxQuantile("salary", Array(0.05, 0.95),0.0)
+    val lowerRange = quantiles(0)
+    val upperRange = quantiles(1)
+    
+    reducedDf.filter(reducedDf("salary").lt(lowerRange)).select("salary").describe().show()
+    reducedDf.filter(reducedDf("salary").gt(upperRange)).select("salary").describe().show()
+  }
+  
+  def transformNullSalaryValues(spark: SparkSession, reducedDf: DataFrame) = {
+    import org.apache.spark.sql.functions._
+    import spark.implicits._
+    
+    val dDf = reducedDf.select("salary").describe()
+    dDf.printSchema()
+    val salMean = dDf.where(dDf("summary") === "mean").first().getAs[String]("salary").toDouble
+    reducedDf.na.fill(salMean,Array("salary"))
+  }
 
+  def transformNullGenderValues(reducedDf: DataFrame) = {
+    import org.apache.spark.sql.functions._
+    
+    val genderNullTransformation = udf {(id: Int, gender: String) => 
+      if(gender == "" || gender == null){
+         if(id%2 == 0) "Male" else "Female"
+      } else gender
+    }
+    
+    reducedDf.withColumn("gender", genderNullTransformation(reducedDf("id") , reducedDf("gender")))
+  }
+
+  def getNullValuesCount(df: DataFrame):  Map[String, Long] = {
+    val cache = Map[String, Long]()
+    
+    df.columns.foreach(col => {
+      val countDf = df.where(df(col).isNull || df(col) === "" || df(col).isNaN)
+      val countNullCol = countDf.count()
+      cache += (col -> countNullCol)
+    })
+    
+    return cache
+  }
+  
+  def executeMapReduce(userDataRdd: RDD[Row]) = {
     val mapLastName = userDataRdd.map(row => {
 
       (row.getAs[String]("last_name"), row.getAs[String]("first_name"))
@@ -35,7 +134,5 @@ object ParquetTestApp {
 
     val reduceLastNameCount = mapLastName.reduceByKey((x, y) => x + y)
     reduceLastNameCount.collect().foreach(println)
-
-    
   }
 }
