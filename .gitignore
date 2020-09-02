@@ -12,3 +12,6 @@ buildNumber.properties
 
 *.class
 *.log
+
+.cache-main/
+.cache-test/
