@@ -26,16 +26,20 @@ object ParquetTestApp {
      val conf: SparkConf = new SparkConf()
       .setMaster("local[2]")
       .setAppName("ParquetTest")
+      .set("spark.sql.warehouse.dir", "hdfs://localhost:9000/user/hive/warehouse")
+      .set("hive.metastore.uris", "thrift://0.0.0.0:9083")
+      .set("spark.sql.catalogImplementation", "hive")
 
     val sc: SparkContext = new SparkContext(conf)
 
     val spark = SparkSession
       .builder()
-      .appName("Spark Parquet Example")
+      .appName("Spark (Parquet -> Hive) Example")
       .getOrCreate()
 
     var df = readParquet(spark)
     df = preProcess(spark, df)
+    df.write.option("path", "/output/sparkparquethive").mode(SaveMode.Overwrite).saveAsTable("ReducedUserData")
   }
 
   def readParquet(spark: SparkSession): DataFrame = {
@@ -70,12 +74,10 @@ object ParquetTestApp {
   
   def applyEnconding(spark: SparkSession, df: DataFrame): DataFrame = {
     var reducedDf = new StringIndexer().setInputCol("gender").setOutputCol("gender_index").fit(df).transform(df);
-    var oneHotEncoder = new OneHotEncoder().setInputCol("gender_index").setOutputCol("gender_vec");
-    reducedDf = oneHotEncoder.fit(reducedDf).transform(reducedDf);
+    reducedDf = new OneHotEncoder().setInputCol("gender_index").setOutputCol("gender_vec").fit(reducedDf).transform(reducedDf);
     
     reducedDf = new StringIndexer().setInputCol("country").setOutputCol("country_index").fit(reducedDf).transform(reducedDf);
-    oneHotEncoder = new OneHotEncoder().setInputCol("country_index").setOutputCol("country_vec");
-    reducedDf = oneHotEncoder.fit(reducedDf).transform(reducedDf);
+    reducedDf = new OneHotEncoder().setInputCol("country_index").setOutputCol("country_vec").fit(reducedDf).transform(reducedDf);
     
     reducedDf.show()
     reducedDf.printSchema()
