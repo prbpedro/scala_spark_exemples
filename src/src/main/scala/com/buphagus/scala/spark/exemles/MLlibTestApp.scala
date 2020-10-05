@@ -1,17 +1,16 @@
 package com.buphagus.scala.spark.exemles
 
-import java.io.File
-import org.apache.spark.sql.SparkSession
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.evaluation.RegressionEvaluator
 import org.apache.spark.ml.feature.VectorAssembler
 import org.apache.spark.ml.regression.LinearRegression
 import org.apache.spark.ml.tuning.ParamGridBuilder
-import org.apache.spark.ml.Pipeline
 import org.apache.spark.ml.tuning.TrainValidationSplit
-import org.apache.spark.ml.evaluation.RegressionEvaluator
 import org.apache.spark.mllib.evaluation.RegressionMetrics
-import org.apache.spark.ml.PipelineModel
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.SparkSession
 
 object MLlibTestApp {
 
@@ -32,16 +31,19 @@ object MLlibTestApp {
       .enableHiveSupport()
       .getOrCreate()
 
-    import spark.implicits._
-
     val df = spark.table("reduceduserdata").toDF()
     println(df.count() + " registros gravados na tabela ReducedUserData do hive")
     df.printSchema()
     df.show()
     println(df.head())
 
+    showCorrelation(spark, df)
+    executeLinearRegression(df)
+  }
+
+  def executeLinearRegression(df: org.apache.spark.sql.DataFrame) = {
     val assembler = new VectorAssembler()
-      .setInputCols(Array( "country_vec"))
+      .setInputCols(Array("country_vec", "gender_vec", "age"))
       .setOutputCol("features")
 
     val lr = new LinearRegression()
@@ -78,5 +80,20 @@ object MLlibTestApp {
     model.transform(test)
       .select("features", "salary", "prediction")
       .show(false)
+  }
+
+  def showCorrelation(spark: SparkSession, df: DataFrame) {
+    
+    import org.apache.spark.sql.functions._
+    import spark.implicits._
+    
+    var corr = df.stat.corr("country_index", "salary")
+    println("Correlation country X salary: " + corr)
+    
+    corr = df.stat.corr("age", "salary")
+    println("Correlation age X salary: " + corr)
+    
+    corr = df.stat.corr("gender_index", "salary")
+    println("Correlation gender_index X salary: " + corr)
   }
 }
